@@ -7,6 +7,10 @@ require "fileutils"
 require "logger"
 require "roo"
 require "set"
+require "countries"
+require "phonelib"
+require "validates_zipcode"
+require "valvat"
 
 APP_ROOT = File.expand_path("..", __dir__)
 DATA_DIR = File.join(APP_ROOT, "data")

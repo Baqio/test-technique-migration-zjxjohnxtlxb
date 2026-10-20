@@ -1,5 +1,5 @@
 ENV["APP_ENV"] = "test"
-
+# require "pry" # only for debugging
 require_relative "../config/environment"
 
 ActiveRecord::Migration.verbose = false
