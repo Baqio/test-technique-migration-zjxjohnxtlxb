@@ -8,6 +8,33 @@ class MigrationReport
     customers_updated: "Clients mis à jour",
     customers_unchanged: "Clients inchangés",
     duplicates_merged: "Doublons fusionnés",
+
+    countries_unknown: "Pays non reconnus, non repris",
+
+    phones_normalized: "Téléphones convertis au format international",
+    phones_kept: "Téléphones conservés après nettoyage (numéro non reconnu)",
+    phones_rejected: "Téléphones illisibles, non repris",
+    phones_placeholder: "Téléphones notés « N/C » ou équivalent, non repris",
+
+    zips_completed: "Codes postaux complétés (pays connu)",
+    zips_completed_assumed_country: "Codes postaux complétés (pays supposé FR)",
+    zips_kept: "Codes postaux conservés tels quels (format non conforme)",
+    zips_unexpected: "Codes postaux dans un pays qui n'en utilise pas",
+    zips_placeholder: "Codes postaux notés « N/C » ou équivalent, non repris",
+
+    emails_rejected: "Adresses e-mail invalides, non reprises",
+    emails_placeholder: "Adresses e-mail notées « N/C » ou équivalent, non reprises",
+
+    vat_numbers_country_mismatch: "Numéros de TVA incohérents avec le pays",
+    vat_numbers_placeholder: "Numéros de TVA notés « N/C » ou équivalent, non repris",
+    vat_numbers_invalid: "Numéros de TVA au format invalide, conservés",
+
+    excise_numbers_completed: "Numéros d'accise complétés au format SEED (13 caractères)",
+    excise_numbers_kept: "Numéros d'accise au format inattendu, conservés",
+    excise_numbers_placeholder: "Numéros d'accise notés « N/C » ou équivalent, non repris",
+
+    kinds_resellers_as_customers: "Revendeurs repris comme clients (catégorie REVENDEUR conservée)",
+    kinds_unknown: "Codes famille client inconnus",
   }.freeze
 
   attr_reader :issues, :counters, :title
@@ -51,7 +78,7 @@ class MigrationReport
   def displayed(value)
     return value.strftime("%d/%m/%Y") if value.is_a?(Date)
 
-    value.to_s.strip.empty? ? "vide" : value.to_s
+    value.to_s.match?(/\A\p{Space}*\z/) ? "vide" : value.to_s
   end
 
   def counters_lines
@@ -67,6 +94,6 @@ class MigrationReport
     changes = issue.details[:changes]
     return issue.message unless changes
 
-    "#{issue.message} : #{changes.map { |field, (before, after)| "#{field} (#{displayed(before)} → #{displayed(after)})" }.join(', ')}"
+    "#{issue.message} : #{changes.map { |field, (before, after)| "#{field} (#{displayed(before)} -> #{displayed(after)})" }.join(', ')}"
   end
 end

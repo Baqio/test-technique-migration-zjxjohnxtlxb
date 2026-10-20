@@ -1,6 +1,8 @@
 class Customer::Import::Cavegest < Importer::Base
   N = Importer::Normalization
 
+  # « R » (revendeur) n'existe pas comme kind dans Baqio : la distinction est
+  # commerciale, pas fonctionnelle. Elle reste portée par customer_category.
   KINDS = { "C" => "customer", "F" => "supplier", "P" => "prospect", "R" => "customer" }.freeze
   SHARED_HEADERS = ["Nom", "Prénom", "Libellé", "Adresse", "Code postal", "Ville", "Pays", "Téléphone 1"].freeze
 
@@ -57,23 +59,30 @@ class Customer::Import::Cavegest < Importer::Base
     !code.nil? && !code.upcase.start_with?("TOTAL")
   end
 
+  def labelled(text, rank)
+    rank.zero? ? text : "#{text} (livraison)"
+  end
+
   def attributes_for(row, map, locator)
+    country          = country_of(row, map, 0, locator)
+    shipping_country = country_of(row, map, 1, locator)
+
     {
       company_name: N.upcased(map.value(row, "Libellé", 0)),
       first_name: N.capitalized(map.value(row, "Prénom", 0)),
       last_name: N.upcased(map.value(row, "Nom", 0)),
       address1: N.text(map.value(row, "Adresse", 0)),
       city: N.text(map.value(row, "Ville", 0)),
-      country_code: N.country_code(map.value(row, "Pays", 0)),
-      zip: N.zip(map.value(row, "Code postal", 0), N.country_code(map.value(row, "Pays", 0))),
-      phone: map.value(row, "Téléphone 1", 0).to_s,
-      mobile: map.value(row, "Téléphone 2", 0).to_s,
-      email: map.value(row, "EMail", 0).to_s,
-      kind: KINDS[N.text(map.value(row, "Code famille client", 0))],
-      customer_category: N.text(map.value(row, "Libellé famille client", 0)),
-      price_grid_code: N.text(map.value(row, "Code categ tarif", 0)),
-      vat_number: N.text(map.value(row, "Numéro de TVA", 0)),
-      excise_number: N.text(map.value(row, "Numéro d Accise", 0)),
+      country_code: country,
+      zip: zip_of(row, map, 0, country, locator),
+      phone: phone_number_of(row, map, 0, country, locator, "Téléphone 1"),
+      mobile: phone_number_of(row, map, 0, country, locator, "Téléphone 2"),
+      email: email_of(row, map, locator),
+      kind: kind_of(row, map, locator),
+      customer_category: N.upcased(map.value(row, "Libellé famille client", 0)),
+      price_grid_code: N.upcased(map.value(row, "Code categ tarif", 0)),
+      vat_number: vat_number_of(row, map, country, locator),
+      excise_number: excise_number_of(row, map, locator),
       creation_date: creation_date(row, map, locator),
       active: N.text(map.value(row, "Inutilisable", 0)) != "1",
       use_billing_address: billing_address_used?(row, map),
@@ -83,10 +92,26 @@ class Customer::Import::Cavegest < Importer::Base
       shipping_company_name: N.upcased(map.value(row, "Libellé", 1)),
       shipping_address1: N.text(map.value(row, "Adresse", 1)),
       shipping_city: N.text(map.value(row, "Ville", 1)),
-      shipping_country_code: N.country_code(map.value(row, "Pays", 1)),
-      shipping_zip: N.zip(map.value(row, "Code postal", 1), N.country_code(map.value(row, "Pays", 1))),
-      shipping_phone: map.value(row, "Téléphone 1", 1).to_s
+      shipping_country_code: shipping_country,
+      shipping_zip: zip_of(row, map, 1, shipping_country, locator),
+      shipping_phone: phone_number_of(row, map, 1, shipping_country, locator, "Téléphone 1")
     }
+  end
+
+  def country_of(row, map, rank, locator)
+    value = map.value(row, "Pays", rank)
+    label = labelled("pays", rank)
+    code  = N.country_code(value)
+    return code if code || N.text(value).nil?
+
+    report.count(:countries_unknown)
+    report.warn(
+      source: source,
+      locator: locator,
+      message: "#{label} non reconnu, non repris : #{N.text(value)}"
+    )
+
+    nil
   end
 
   def status_of(customer)
@@ -132,6 +157,185 @@ class Customer::Import::Cavegest < Importer::Base
     )
 
     nil
+  end
+
+  def zip_of(row, map, rank, country, locator)
+    value = map.value(row, "Code postal", rank)
+    label = labelled("code postal", rank)
+    code, status = N.zip(value, country)
+
+    case status
+    when :padded
+      report.count(country ? :zips_completed : :zips_completed_assumed_country)
+      report.warn(
+        source: source,
+        locator: locator,
+        message: "#{label} complété (#{country || "#{N::DEFAULT_COUNTRY} par défaut"}) : #{N.text(value)} -> #{code}"
+      )
+    when :kept
+      report.count(:zips_kept)
+      report.warn(
+        source: source,
+        locator: locator,
+        message: "#{label} non conforme au format #{country || N::DEFAULT_COUNTRY}, valeur conservée : #{code}"
+      )
+    when :unexpected
+      report.count(:zips_unexpected)
+      report.warn(
+        source: source,
+        locator: locator,
+        message: "#{label} : #{country} n'utilise pas de code postal, valeur conservée : #{code}"
+      )
+    when :placeholder
+      report.count(:zips_placeholder)
+      report.warn(
+        source: source,
+        locator: locator,
+        message: "#{label} noté « #{N.text(value)} », non repris"
+      )
+    end
+
+    code
+  end
+
+  def phone_number_of(row, map, rank, country, locator, header)
+    value = map.value(row, header, rank)
+    label = labelled(header, rank)
+    number, status = N.phone(value, country)
+
+    case status
+    when :normalized
+      report.count(:phones_normalized)
+    when :kept
+      report.count(:phones_kept)
+      report.warn(
+        source: source,
+        locator: locator,
+        message: "#{label} non reconnu, conservé reformaté : #{N.text(value)} -> #{number}"
+      )
+    when :rejected
+      report.count(:phones_rejected)
+      report.warn(
+        source: source,
+        locator: locator,
+        message: "#{label} illisible, non repris : #{N.text(value)}"
+      )
+    when :placeholder
+      report.count(:phones_placeholder)
+      report.warn(
+        source: source,
+        locator: locator,
+        message: "#{label} noté « #{N.text(value)} », non repris"
+      )
+    end
+
+    number
+  end
+
+  def email_of(row, map, locator)
+    value = map.value(row, "EMail", 0)
+    address, status = N.email(value)
+
+    case status
+    when :rejected
+      report.count(:emails_rejected)
+      report.warn(
+        source: source,
+        locator: locator,
+        message: "adresse e-mail invalide, non reprise : #{N.text(value)}"
+      )
+    when :placeholder
+      report.count(:emails_placeholder)
+      report.warn(
+        source: source,
+        locator: locator,
+        message: "adresse e-mail notée « #{N.text(value)} », non reprise"
+      )
+    end
+
+    address
+  end
+
+  def vat_number_of(row, map, country, locator)
+    value = map.value(row, "Numéro de TVA", 0)
+    number, status = N.vat_number(value, country)
+
+    case status
+    when :mismatch
+      report.count(:vat_numbers_country_mismatch)
+      report.warn(
+        source: source,
+        locator: locator,
+        message: "numéro de TVA #{number} incohérent avec le pays #{country}"
+      )
+    when :placeholder
+      report.count(:vat_numbers_placeholder)
+      report.warn(
+        source: source,
+        locator: locator,
+        message: "numéro de TVA noté « #{N.text(value)} », non repris"
+      )
+    when :invalid
+      report.count(:vat_numbers_invalid)
+      report.warn(
+        source: source,
+        locator: locator,
+        message: "numéro de TVA au format invalide, conservé : #{number}"
+      )
+    end
+
+    number
+  end
+
+  def excise_number_of(row, map, locator)
+    value = map.value(row, "Numéro d Accise", 0)
+    number, status = N.excise_number(value)
+
+    case status
+    when :padded
+      report.count(:excise_numbers_completed)
+      report.warn(
+        source: source,
+        locator: locator,
+        message: "numéro d'accise complété au format SEED : #{N.text(value)} -> #{number}"
+      )
+    when :kept
+      report.count(:excise_numbers_kept)
+      report.warn(
+        source: source,
+        locator: locator,
+        message: "numéro d'accise au format inattendu, conservé : #{number}"
+      )
+    when :placeholder
+      report.count(:excise_numbers_placeholder)
+      report.warn(
+        source: source,
+        locator: locator,
+        message: "numéro d'accise noté « #{N.text(value)} », non repris"
+      )
+    end
+
+    number
+  end
+
+  def kind_of(row, map, locator)
+    code = N.text(map.value(row, "Code famille client", 0))&.upcase
+    kind = KINDS[code]
+
+    if kind.nil?
+      report.count(:kinds_unknown)
+      report.warn(
+        source: source,
+        locator: locator,
+        message: "code famille client inconnu : #{code.inspect}"
+      )
+
+      return nil
+    end
+
+    report.count(:kinds_resellers_as_customers) if code == "R"
+
+    kind
   end
 
   def billing_address_used?(row, map)
