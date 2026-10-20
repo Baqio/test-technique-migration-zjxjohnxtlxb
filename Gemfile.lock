@@ -94,16 +94,16 @@ PLATFORMS
 DEPENDENCIES
   activerecord (~> 7.1)
   activesupport (~> 7.1)
-  countries
+  countries (~> 8.1)
   csv
   pg (~> 1.5)
-  phonelib
+  phonelib (~> 0.10)
   pry
   rake
   roo (~> 2.10)
   rspec (~> 3.13)
-  validates_zipcode
-  valvat
+  validates_zipcode (~> 0.6)
+  valvat (~> 2.0)
 
 RUBY VERSION
    ruby 3.4.6p54

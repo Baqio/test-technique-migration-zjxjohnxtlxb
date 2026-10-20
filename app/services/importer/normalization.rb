@@ -29,21 +29,18 @@ module Importer::Normalization
   EXCISE_FORMAT = /\A[A-Z]{2}[A-Z0-9]{11}\z/
   EXCISE_PARTIAL = /\A[A-Z]{2}[A-Z0-9]{1,10}\z/
 
-  def text(value)
-    value = value.to_i if value.is_a?(Float) && value.to_i == value
+  # Unité parfois collée au nombre : « 19,31 EUR », « 20% ».
+  UNIT = /\s*(EUR|€|%)\z/i
 
-    cleaned = value.to_s.gsub(/\p{Space}+/, " ").strip
-    cleaned.empty? ? nil : cleaned
-  end
+  def text(value) = TextNormalization.text(value)
+  def upcased(value) = TextNormalization.upcased(value)
+  def capitalized(value) = TextNormalization.capitalized(value)
 
   def placeholder?(value)
     raw = text(value)
 
     !raw.nil? && raw.match?(PLACEHOLDERS)
   end
-
-  def upcased(value) = NameCasing.upcased(value)
-  def capitalized(value) = NameCasing.capitalized(value)
 
   def country_code(value)
     raw = text(value)
@@ -135,8 +132,15 @@ module Importer::Normalization
     ["#{raw[0, 2]}#{raw[2..].rjust(EXCISE_LENGTH - 2, '0')}", :padded]
   end
 
+  # [statut] : :ok, :blank, :invalid
   def decimal(value)
-    value.to_s.to_f
+    raw = text(value)
+    return [nil, :blank] if raw.nil?
+
+    digits = raw.sub(UNIT, "").delete(" ").tr(",", ".")
+    return [nil, :invalid] unless digits.match?(/\A\d+(\.\d+)?\z/)
+
+    [digits.to_d, :ok]
   end
 
   def date(value)
