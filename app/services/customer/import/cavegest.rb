@@ -28,13 +28,8 @@ class Customer::Import::Cavegest < Importer::Base
       customer.save!
       report.count(status)
       report_update(customer, locator) if status == :customers_updated
-
     rescue ActiveRecord::RecordInvalid => error
-      report.error(
-        source: source,
-        locator: locator,
-        message: error.record.errors.full_messages.join(", ")
-      )
+      report_invalid(error, locator)
     end
 
     report
@@ -80,10 +75,10 @@ class Customer::Import::Cavegest < Importer::Base
       email: email_of(row, map, locator),
       kind: kind_of(row, map, locator),
       customer_category: N.upcased(map.value(row, "Libellé famille client", 0)),
-      price_grid_code: N.upcased(map.value(row, "Code categ tarif", 0)),
+      price_grid: price_grid_for(row, map, locator),
       vat_number: vat_number_of(row, map, country, locator),
       excise_number: excise_number_of(row, map, locator),
-      creation_date: creation_date(row, map, locator),
+      creation_date: creation_date_of(row, map, locator),
       active: N.text(map.value(row, "Inutilisable", 0)) != "1",
       use_billing_address: billing_address_used?(row, map),
 
@@ -114,11 +109,35 @@ class Customer::Import::Cavegest < Importer::Base
     nil
   end
 
-  def status_of(customer)
-    return :customers_created if customer.new_record?
-    return :customers_updated if customer.changed?
+  def price_grid_for(row, map, locator)
+    code = N.upcased(map.value(row, "Code categ tarif", 0))
+    return nil if code.nil?
 
-    :customers_unchanged
+    name = N.upcased(map.value(row, "Libellé categ tarif", 0))
+
+    grid = price_grids[code] ||= begin
+      found = PriceGrid.find_or_initialize_by(code: code)
+      found.name ||= name
+      status = status_of(found)
+      found.save!
+      report.count(status)
+      found
+    end
+
+    if name && grid.name != name
+      report.count(:price_grid_labels_conflicting)
+      report.warn(
+        source: source,
+        locator: locator,
+        message: "grille #{code} : libellés contradictoires (#{grid.name} / #{name})"
+      )
+    end
+
+    grid
+  end
+
+  def price_grids
+    @price_grids ||= {}
   end
 
   def report_duplicate(seen, reference, attributes, locator)
@@ -130,6 +149,7 @@ class Customer::Import::Cavegest < Importer::Base
         message: "doublon de #{reference}, ligne identique ignorée"
       )
     else
+      report.count(:customer_duplicate_references)
       report.error(
         source: source,
         locator: locator,
@@ -138,15 +158,7 @@ class Customer::Import::Cavegest < Importer::Base
     end
   end
 
-  def report_update(customer, locator)
-    report.warn(
-      source: source, locator: locator,
-      message: "#{customer.reference} mis à jour",
-      changes: customer.previous_changes.except("updated_at")
-    )
-  end
-
-  def creation_date(row, map, locator)
+  def creation_date_of(row, map, locator)
     value = map.value(row, "Date de création", 0)
     N.date(value)
   rescue Date::Error

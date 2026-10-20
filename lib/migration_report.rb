@@ -8,6 +8,7 @@ class MigrationReport
     customers_updated: "Clients mis à jour",
     customers_unchanged: "Clients inchangés",
     duplicates_merged: "Doublons fusionnés",
+    customer_duplicate_references: "Références utilisées par deux clients différents",
 
     countries_unknown: "Pays non reconnus, non repris",
 
@@ -26,8 +27,8 @@ class MigrationReport
     emails_placeholder: "Adresses e-mail notées « N/C » ou équivalent, non reprises",
 
     vat_numbers_country_mismatch: "Numéros de TVA incohérents avec le pays",
-    vat_numbers_placeholder: "Numéros de TVA notés « N/C » ou équivalent, non repris",
     vat_numbers_invalid: "Numéros de TVA au format invalide, conservés",
+    vat_numbers_placeholder: "Numéros de TVA notés « N/C » ou équivalent, non repris",
 
     excise_numbers_completed: "Numéros d'accise complétés au format SEED (13 caractères)",
     excise_numbers_kept: "Numéros d'accise au format inattendu, conservés",
@@ -35,6 +36,35 @@ class MigrationReport
 
     kinds_resellers_as_customers: "Revendeurs repris comme clients (catégorie REVENDEUR conservée)",
     kinds_unknown: "Codes famille client inconnus",
+
+    price_grids_created: "Grilles tarifaires créées",
+    price_grids_updated: "Grilles tarifaires mises à jour",
+    price_grids_unchanged: "Grilles tarifaires inchangées",
+    price_grid_labels_conflicting: "Grilles tarifaires avec des libellés contradictoires",
+    price_grid_columns_unknown: "Colonnes de l'export non reprises",
+    price_grid_columns_missing: "Grilles tarifaires absentes de l'export",
+
+    product_classifications_created: "Sections du catalogue créées",
+
+    product_colors_created: "Couleurs créées",
+
+    products_created: "Produits créés",
+    products_updated: "Produits mis à jour",
+    products_unchanged: "Produits inchangés",
+    products_without_classification: "Produits hors section du catalogue",
+    product_duplicate_references: "Références utilisées par deux produits différents",
+    product_sections_incomplete: "Sections dont l'effectif ne correspond pas au sous-total annoncé",
+
+    product_volumes_missing: "Contenants absents",
+    product_volumes_unreadable: "Contenants illisibles, volume non repris",
+    product_vat_rates_missing: "Taux de TVA illisibles, non repris",
+    product_stocks_missing: "Stocks illisibles, non repris",
+
+    product_prices_created: "Tarifs créés",
+    product_prices_updated: "Tarifs mis à jour",
+    product_prices_unchanged: "Tarifs inchangés",
+    product_prices_invalid: "Tarifs illisibles, non repris",
+    product_prices_without_vat_rate: "Tarifs TTC sans taux de TVA, non repris"
   }.freeze
 
   attr_reader :issues, :counters, :title

@@ -5,7 +5,10 @@ RSpec.describe Customer::Import::Cavegest do
     @report = described_class.new(data_path("export_clients_cavegest.xlsx"), report: MigrationReport.new).call
   end
 
-  after(:all) { Customer.delete_all }
+  after(:all) do
+    Customer.delete_all
+    PriceGrid.delete_all
+  end
 
   let(:report) { @report }
 
