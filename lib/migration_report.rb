@@ -4,6 +4,10 @@ class MigrationReport
   SEPARATOR = "=" * 60
 
   LABELS = {
+    sheets_left_aside: "Feuilles non reprises",
+    sheets_not_found: "Feuilles demandées mais absentes",
+    headers_not_found: "Sources sans en-tête exploitable",
+
     customers_in_base: "Clients en base",
     products_in_base: "Produits en base",
     product_prices_in_base: "Tarifs en base",
@@ -44,6 +48,8 @@ class MigrationReport
     kinds_resellers_as_customers: "Revendeurs repris comme clients (catégorie REVENDEUR conservée)",
     kinds_unknown: "Codes famille client inconnus",
 
+    creation_dates_unreadable: "Dates de création illisibles",
+
     price_grids_created: "Grilles tarifaires créées",
     price_grids_updated: "Grilles tarifaires mises à jour",
     price_grids_unchanged: "Grilles tarifaires inchangées",
@@ -83,6 +89,7 @@ class MigrationReport
     product_prices_unchanged: "Tarifs inchangés",
     product_prices_invalid: "Tarifs illisibles, non repris",
     product_prices_without_vat_rate: "Tarifs TTC sans taux de TVA, non repris",
+    product_prices_converted: "Tarifs convertis du TTC vers le HT",
   }.freeze
 
   attr_reader :issues, :counters, :title
