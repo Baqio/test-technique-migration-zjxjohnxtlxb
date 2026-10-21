@@ -1,7 +1,9 @@
 class Importer::Base
   attr_reader :path, :report
 
-  def initialize(path, report: MigrationReport.new)
+  def initialize(
+    path, report: MigrationReport.new(title: "Reprise : #{File.basename(path)}")
+  )
     @path   = path
     @report = report
   end

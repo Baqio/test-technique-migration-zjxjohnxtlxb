@@ -4,6 +4,13 @@ class MigrationReport
   SEPARATOR = "=" * 60
 
   LABELS = {
+    customers_in_base: "Clients en base",
+    products_in_base: "Produits en base",
+    product_prices_in_base: "Tarifs en base",
+    price_grids_in_base: "Grilles tarifaires en base",
+    product_classifications_in_base: "Sections du catalogue en base",
+    product_colors_in_base: "Couleurs en base",
+
     customers_created: "Clients créés",
     customers_updated: "Clients mis à jour",
     customers_unchanged: "Clients inchangés",
@@ -43,6 +50,17 @@ class MigrationReport
     price_grid_labels_conflicting: "Grilles tarifaires avec des libellés contradictoires",
     price_grid_columns_unknown: "Colonnes de l'export non reprises",
     price_grid_columns_missing: "Grilles tarifaires absentes de l'export",
+    price_grids_without_prices: "Grilles tarifaires sans aucun tarif",
+    price_grids_without_customers: "Grilles tarifaires sans aucun client",
+
+    products_without_prices: "Produits sans aucun tarif",
+    products_without_vat_rate: "Produits sans taux de TVA",
+    product_prices_not_positive: "Tarifs à zéro ou négatifs",
+    customers_without_price_grid: "Clients sans grille tarifaire",
+    price_grids_incomplete: "Grilles tarifaires incomplètes",
+    products_possibly_duplicated: "Produits de même désignation et même contenance",
+    products_without_volume: "Produits sans contenance",
+    products_without_color: "Produits sans couleur",
 
     product_classifications_created: "Sections du catalogue créées",
 
@@ -64,7 +82,7 @@ class MigrationReport
     product_prices_updated: "Tarifs mis à jour",
     product_prices_unchanged: "Tarifs inchangés",
     product_prices_invalid: "Tarifs illisibles, non repris",
-    product_prices_without_vat_rate: "Tarifs TTC sans taux de TVA, non repris"
+    product_prices_without_vat_rate: "Tarifs TTC sans taux de TVA, non repris",
   }.freeze
 
   attr_reader :issues, :counters, :title
@@ -112,7 +130,9 @@ class MigrationReport
   end
 
   def counters_lines
-    counters.map { |key, value| "#{LABELS.fetch(key, key)} : #{value}" }.join("\n")
+    counters.sort_by { |key, _| LABELS.keys.index(key) || LABELS.size }
+            .map { |key, value| "#{LABELS.fetch(key, key)} : #{value}" }
+            .join("\n")
   end
 
   def section(title, issues)
