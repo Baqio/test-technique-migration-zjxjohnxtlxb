@@ -32,6 +32,12 @@ module Importer::Normalization
   # Unité parfois collée au nombre : « 19,31 EUR », « 20% ».
   UNIT = /\s*(EUR|€|%)\z/i
 
+  DATE_FORMATS = {
+    %r{\A\d{1,2}/\d{1,2}/\d{4}\z} => "%d/%m/%Y",
+    /\A\d{4}-\d{1,2}-\d{1,2}\z/ => "%Y-%m-%d",
+    %r{\A\d{4}/\d{1,2}/\d{1,2}\z} => "%Y/%m/%d"
+  }.freeze
+
   def text(value) = TextNormalization.text(value)
   def upcased(value) = TextNormalization.upcased(value)
   def capitalized(value) = TextNormalization.capitalized(value)
@@ -148,7 +154,10 @@ module Importer::Normalization
     return value if value.is_a?(Date)
 
     raw = text(value)
-    Date.strptime(raw, "%d/%m/%Y") if raw
+    format = DATE_FORMATS.find { |shape, _| raw.match?(shape) }&.last
+    raise Date::Error, "format de date inconnu : #{raw}" if format.nil?
+
+    Date.strptime(raw, format)
   end
 
   def postal_code?(country_code)
