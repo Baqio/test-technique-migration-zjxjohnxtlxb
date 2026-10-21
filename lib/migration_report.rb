@@ -67,6 +67,11 @@ class MigrationReport
     products_possibly_duplicated: "Produits de même désignation et même contenance",
     products_without_volume: "Produits sans contenance",
     products_without_color: "Produits sans couleur",
+    customers_creation_date_impossible: "Dates de création impossibles",
+    customers_without_country: "Clients sans pays",
+    vat_numbers_shared: "Numéros de TVA utilisés par plusieurs clients",
+    firms_possibly_duplicated: "Clients de même enseigne à la même adresse",
+    people_possibly_duplicated: "Particuliers de même nom à la même adresse",
 
     product_classifications_created: "Sections du catalogue créées",
 

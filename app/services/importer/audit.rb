@@ -10,6 +10,8 @@ class Importer::Audit
     ProductColor
   ].freeze
 
+  IMPOSSIBLE_BEFORE = Date.new(1900, 1, 1)
+
   attr_reader :report
 
   def self.call = new.call
@@ -28,11 +30,16 @@ class Importer::Audit
     check_prices_not_positive
     check_customers_without_price_grid
     check_grids_without_prices
+    check_creation_dates_impossible
 
     check_grids_without_customers
     check_grids_missing_products
     check_duplicate_products
     check_incomplete_products
+    check_customers_without_country
+    check_vat_numbers_shared
+    check_firms_at_same_address
+    check_people_at_same_address
 
     report
   end
@@ -106,6 +113,21 @@ class Importer::Audit
     end
   end
 
+  def check_creation_dates_impossible
+    customers = Customer.where(
+      "creation_date > ? OR creation_date < ?", Date.current, IMPOSSIBLE_BEFORE
+    )
+    report.count(:customers_creation_date_impossible, customers.count)
+
+    customers.find_each do |customer|
+      report.error(
+        source: SOURCE,
+        locator: "client #{customer.reference}",
+        message: "date de création impossible : #{customer.creation_date.strftime('%d/%m/%Y')}"
+      )
+    end
+  end
+
   def check_grids_without_customers
     grids = PriceGrid.where.associated(:product_prices).where.missing(:customers).distinct
     report.count(:price_grids_without_customers, grids.count)
@@ -158,5 +180,79 @@ class Importer::Audit
   def check_incomplete_products
     report.count(:products_without_volume, Product.where(volume_ml: nil).count)
     report.count(:products_without_color, Product.where(product_color_id: nil).count)
+  end
+
+  def check_customers_without_country
+    customers = Customer.where(country_code: nil)
+    report.count(:customers_without_country, customers.count)
+
+    recoverable = customers.where.not(vat_number: nil).count
+    return if recoverable.zero?
+
+    report.warn(
+      source: SOURCE,
+      locator: "clients sans pays",
+      message: "pays retrouvable depuis le numéro de TVA pour #{recoverable} d'entre eux"
+    )
+  end
+
+  def check_vat_numbers_shared
+    shared = Customer.where.not(vat_number: nil).group(:vat_number).having("count(*) > 1").count
+    report.count(:vat_numbers_shared, shared.size)
+
+    Customer.where(vat_number: shared.keys)
+            .order(:vat_number, :reference)
+            .group_by(&:vat_number)
+            .each do |number, customers|
+      report.warn(
+        source: SOURCE,
+        locator: "clients #{customers.map(&:reference).join(', ')}",
+        message: "même numéro de TVA #{number}"
+      )
+    end
+  end
+
+  def check_firms_at_same_address
+    groups = Customer.where.not(company_name: nil).where.not(address1: nil)
+                     .group(:company_name, :zip, :address1)
+                     .having("count(*) > 1")
+                     .count
+
+    report.count(:firms_possibly_duplicated, groups.size)
+    return if groups.empty?
+
+    references = Customer.where(company_name: groups.keys.map(&:first))
+                         .pluck(:company_name, :zip, :address1, :reference)
+                         .group_by { |name, zip, address, _| [name, zip, address] }
+
+    groups.each_key do |key|
+      report.warn(
+        source: SOURCE,
+        locator: "clients #{references[key].map(&:last).join(', ')}",
+        message: "même enseigne à la même adresse"
+      )
+    end
+  end
+
+  def check_people_at_same_address
+    groups = Customer.where(company_name: nil).where.not(address1: nil)
+                     .group(:last_name, :first_name, :zip, :address1)
+                     .having("count(*) > 1")
+                     .count
+
+    report.count(:people_possibly_duplicated, groups.size)
+    return if groups.empty?
+
+    references = Customer.where(company_name: nil, last_name: groups.keys.map(&:first))
+                         .pluck(:last_name, :first_name, :zip, :address1, :reference)
+                         .group_by { |last, first, zip, address, _| [last, first, zip, address] }
+
+    groups.each_key do |key|
+      report.warn(
+        source: SOURCE,
+        locator: "clients #{references[key].map(&:last).join(', ')}",
+        message: "même personne à la même adresse"
+      )
+    end
   end
 end

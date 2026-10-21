@@ -111,6 +111,71 @@ RSpec.describe Importer::Audit do
     expect(report.counters[:products_without_color]).to eq(1)
   end
 
+it "counts the customers whose country is missing" do
+    customer("T00001", country_code: "FR")
+    customer("T00002")
+    customer("T00003", vat_number: "FR69995954011")
+
+    expect(report.counters[:customers_without_country]).to eq(2)
+    expect(report.warnings.last.message)
+      .to eq("pays retrouvable depuis le numéro de TVA pour 1 d'entre eux")
+  end
+
+  it "flags a VAT number used by two customers" do
+    customer("T00001", vat_number: "FR40123456782")
+    customer("T00002", vat_number: "FR40123456782")
+    customer("T00003", vat_number: "FR69995954011")
+
+    expect(report.counters[:vat_numbers_shared]).to eq(1)
+    expect(report.warnings.last.locator).to eq("clients T00001, T00002")
+    expect(report.warnings.last.message).to eq("même numéro de TVA FR40123456782")
+  end
+
+  it "flags two references for the same shop at the same address" do
+    customer("T02200", company_name: "LE VERRE GALANT", last_name: "BOYER",
+             zip: "31000", address1: "27 place du Marché")
+    customer("T03415", company_name: "LE VERRE GALANT", last_name: "MARTIN",
+             zip: "31000", address1: "27 place du Marché")
+
+    expect(report.counters[:firms_possibly_duplicated]).to eq(1)
+    expect(report.warnings.last.locator).to include("T02200", "T03415")
+    expect(report.warnings.last.message).to eq("même enseigne à la même adresse")
+  end
+
+  it "does not confuse two shops of the same name in the same town" do
+    customer("T02200", company_name: "LE VERRE GALANT", zip: "69002", address1: "1 avenue de la Gare")
+    customer("T03415", company_name: "LE VERRE GALANT", zip: "69002", address1: "109 avenue de la Gare")
+
+    expect(report.counters[:firms_possibly_duplicated]).to eq(0)
+  end
+
+  it "flags two references for the same person at the same address" do
+    customer("T00117", last_name: "GARNIER", first_name: "Nadia", zip: "34000", address1: "114 grand rue")
+    customer("T00305", last_name: "GARNIER", first_name: "Nadia", zip: "34000", address1: "114 grand rue")
+
+    expect(report.counters[:people_possibly_duplicated]).to eq(1)
+    expect(report.warnings.last.locator).to include("T00117", "T00305")
+    expect(report.warnings.last.message).to eq("même personne à la même adresse")
+  end
+
+  it "does not take two people living together for a duplicate" do
+    customer("T00117", last_name: "GARNIER", first_name: "Nadia", zip: "34000", address1: "114 grand rue")
+    customer("T00305", last_name: "GARNIER", first_name: "Marc", zip: "34000", address1: "114 grand rue")
+
+    expect(report.counters[:people_possibly_duplicated]).to eq(0)
+    expect(report.to_s).to include("Particuliers de même nom à la même adresse : 0")
+  end
+
+  it "flags a creation date that cannot be one" do
+    customer("T00001", creation_date: Date.new(2013, 7, 22))
+    customer("T00002", creation_date: Date.new(13, 7, 22))
+    customer("T00003", creation_date: Date.current + 1)
+
+    expect(report.counters[:customers_creation_date_impossible]).to eq(2)
+    expect(report.errors.map(&:locator)).to eq(["client T00002", "client T00003"])
+    expect(report.errors.first.message).to eq("date de création impossible : 22/07/0013")
+  end
+
   def grid(code)
     PriceGrid.create!(code: code)
   end
