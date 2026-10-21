@@ -28,7 +28,7 @@ ActiveRecord::Base.logger = Logger.new(ENV["AR_LOG"] ? $stdout : IO::NULL)
   Dir[File.join(APP_ROOT, dir, "**", "*.rb")].sort.each { |file| require file }
 end
 
-%w[importer.rb importer/normalization.rb importer/base.rb].each do |file|
+%w[importer.rb importer/normalization.rb importer/reporting.rb importer/base.rb].each do |file|
   require File.join(APP_ROOT, "app", "services", file)
 end
 
