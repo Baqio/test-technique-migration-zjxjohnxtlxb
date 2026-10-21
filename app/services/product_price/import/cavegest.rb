@@ -69,7 +69,7 @@ class ProductPrice::Import::Cavegest < Importer::Base
     if offset.nil?
       report.error(
         source: source,
-        locator: source,
+        locator: "en-tête",
         message: "ligne d'en-tête introuvable"
       )
 
@@ -79,7 +79,7 @@ class ProductPrice::Import::Cavegest < Importer::Base
     csv = CSV.new(content.lines.drop(offset).join, **CSV_OPTIONS)
     check_grid_columns(csv.first&.headers || [])
     csv.rewind
-    csv.each { |row| yield row, "#{source} ligne #{csv.lineno + offset}" }
+    csv.each { |row| yield row, "ligne #{csv.lineno + offset}" }
   end
 
   def check_grid_columns(headers)
@@ -89,7 +89,7 @@ class ProductPrice::Import::Cavegest < Importer::Base
       report.count(:price_grid_columns_unknown)
       report.warn(
         source: source,
-        locator: "#{source} en-tête",
+        locator: "en-tête",
         message: "colonne inconnue, non reprise : #{column}"
       )
     end
@@ -98,7 +98,7 @@ class ProductPrice::Import::Cavegest < Importer::Base
       report.count(:price_grid_columns_missing)
       report.warn(
         source: source,
-        locator: "#{source} en-tête",
+        locator: "en-tête",
         message: "grille #{code} absente de l'export"
       )
     end
@@ -112,16 +112,23 @@ class ProductPrice::Import::Cavegest < Importer::Base
   end
 
   def classification_for(name)
-    classification = ProductClassification.find_or_initialize_by(name: N.upcased(name))
+    section = N.upcased(name)
 
-    if classification.new_record?
-      @sections = (@sections || 0) + 1
-      classification.position = @sections
-      classification.save!
-      report.count(:product_classifications_created)
+    classifications[section] ||= begin
+      classification = ProductClassification.find_or_initialize_by(name: section)
+
+      if classification.new_record?
+        classification.position = classifications.size + 1
+        classification.save!
+        report.count(:product_classifications_created)
+      end
+
+      classification
     end
+  end
 
-    classification
+  def classifications
+    @classifications ||= {}
   end
 
   def collect_declared_total(reference, row)
@@ -262,14 +269,20 @@ class ProductPrice::Import::Cavegest < Importer::Base
     name = N.capitalized(row["Couleur"])
     return nil if name.nil?
 
-    color = ProductColor.find_or_initialize_by(name: name)
+    colors[name] ||= begin
+      color = ProductColor.find_or_initialize_by(name: name)
 
-    if color.new_record?
-      color.save!
-      report.count(:product_colors_created)
+      if color.new_record?
+        color.save!
+        report.count(:product_colors_created)
+      end
+
+      color
     end
+  end
 
-    color
+  def colors
+    @colors ||= {}
   end
 
   def import_prices(product, row, locator)
@@ -325,7 +338,7 @@ class ProductPrice::Import::Cavegest < Importer::Base
       report.count(:product_sections_incomplete)
       report.warn(
         source: source,
-        locator: "#{source} section #{section}",
+        locator: "section #{section}",
         message: "#{declared} produits annoncés, #{kept} repris"
       )
     end

@@ -1,4 +1,7 @@
 class PriceGrid < ActiveRecord::Base
+  has_many :customers
+  has_many :product_prices
+
   validates :code, presence: true, uniqueness: true
 
   before_validation :normalize_casing
