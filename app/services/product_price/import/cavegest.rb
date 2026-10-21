@@ -18,19 +18,17 @@ class ProductPrice::Import::Cavegest < Importer::Base
   # La grille EXPO est saisie en TTC dans CaveGest, on stocke du HT.
   TAX_INCLUDED_GRIDS = %w[EXPO].freeze
 
-  CENTILITRES = /-\s*(\d+(?:[.,]\d+)?)\s*\z/
-
   def call
     declare_price_grids
 
-    each_row do |row, locator|
-      reference = N.text(row["Ref"])
+    each_row do |row|
+      reference = N.text(row.value("Ref"))
       next if reference.nil?
 
       case line_kind(reference)
       when :section then @classification = classification_for(reference[SECTION, 1])
       when :total   then collect_declared_total(reference, row)
-      when :product then import_product(row, reference, locator)
+      when :product then import_product(row, reference)
       end
     end
 
@@ -67,10 +65,10 @@ class ProductPrice::Import::Cavegest < Importer::Base
     offset = content.lines.index { |l| l.start_with?("Ref#{COLUMN_SEP}") }
 
     if offset.nil?
-      report.error(
-        source: source,
-        locator: "en-tête",
-        message: "ligne d'en-tête introuvable"
+      report_error(
+        :headers_not_found,
+        "en-tête",
+        "ligne d'en-tête introuvable"
       )
 
       return
@@ -79,27 +77,25 @@ class ProductPrice::Import::Cavegest < Importer::Base
     csv = CSV.new(content.lines.drop(offset).join, **CSV_OPTIONS)
     check_grid_columns(csv.first&.headers || [])
     csv.rewind
-    csv.each { |row| yield row, "ligne #{csv.lineno + offset}" }
+    csv.each { |cells| yield Importer::Row.new(cells, "ligne #{csv.lineno + offset}") }
   end
 
   def check_grid_columns(headers)
     columns = headers.compact
 
     (columns - PRODUCT_COLUMNS - GRID_CODES).each do |column|
-      report.count(:price_grid_columns_unknown)
-      report.warn(
-        source: source,
-        locator: "en-tête",
-        message: "colonne inconnue, non reprise : #{column}"
+      report_warning(
+        :price_grid_columns_unknown,
+        "en-tête",
+        "colonne inconnue, non reprise : #{column}"
       )
     end
 
     (GRID_CODES - columns).each do |code|
-      report.count(:price_grid_columns_missing)
-      report.warn(
-        source: source,
-        locator: "en-tête",
-        message: "grille #{code} absente de l'export"
+      report_warning(
+        :price_grid_columns_missing,
+        "en-tête",
+        "grille #{code} absente de l'export"
       )
     end
   end
@@ -133,7 +129,7 @@ class ProductPrice::Import::Cavegest < Importer::Base
 
   def collect_declared_total(reference, row)
     section = N.upcased(reference.sub(/\ASOUS-TOTAL\s*/i, ""))
-    declared, = N.decimal(row["Stock"])
+    declared, = N.decimal(row.value("Stock"))
 
     declared_totals[section] = declared.to_i
   end
@@ -142,20 +138,19 @@ class ProductPrice::Import::Cavegest < Importer::Base
     @declared_totals ||= {}
   end
 
-  def import_product(row, reference, locator)
-    attributes = attributes_for(row, locator)
-    fingerprint = [attributes, GRID_CODES.map { |code| row[code] }].hash
+  def import_product(row, reference)
+    attributes = attributes_for(row)
+    fingerprint = [attributes, GRID_CODES.map { |code| row.value(code) }].hash
 
-    return report_duplicate(reference, fingerprint, locator) if seen.key?(reference)
+    return report_duplicate(row, reference, fingerprint) if seen.key?(reference)
 
     seen[reference] = fingerprint
 
     if @classification.nil?
-      report.count(:products_without_classification)
-      report.warn(
-        source: source,
-        locator: locator,
-        message: "produit hors section : #{reference}"
+      report_warning(
+        :products_without_classification,
+        row.locator,
+        "produit hors section : #{reference}"
       )
     end
 
@@ -164,32 +159,30 @@ class ProductPrice::Import::Cavegest < Importer::Base
     status = status_of(product)
     product.save!
     report.count(status)
-    report_update(product, locator) if status == :products_updated
+    report_update(product, row.locator) if status == :products_updated
     retained_counts[@classification&.name] += 1
 
-    import_prices(product, row, locator)
+    import_prices(product, row)
   rescue ActiveRecord::RecordInvalid => error
-    report_invalid(error, locator)
+    report_invalid(error, row.locator)
   end
 
   def seen
     @seen ||= {}
   end
 
-  def report_duplicate(reference, fingerprint, locator)
+  def report_duplicate(row, reference, fingerprint)
     if seen[reference] == fingerprint
-      report.count(:duplicates_merged)
-      report.warn(
-        source: source,
-        locator: locator,
-        message: "doublon de #{reference}, ligne identique ignorée"
+      report_warning(
+        :duplicates_merged,
+        row.locator,
+        "doublon de #{reference}, ligne identique ignorée"
       )
     else
-      report.count(:product_duplicate_references)
-      report.error(
-        source: source,
-        locator: locator,
-        message: "référence #{reference} déjà utilisée par un autre produit"
+      report_error(
+        :product_duplicate_references,
+        row.locator,
+        "référence #{reference} déjà utilisée par un autre produit"
       )
     end
   end
@@ -198,75 +191,14 @@ class ProductPrice::Import::Cavegest < Importer::Base
     @retained_counts ||= Hash.new(0)
   end
 
-  def attributes_for(row, locator)
-    {
-      name: N.text(row["Désignation"]),
-      product_color: color_for(row),
-      volume_ml: volume_ml_of(row, locator),
-      vat_rate: vat_rate_of(row, locator),
-      stock: stock_of(row, locator),
-      product_classification: @classification
-    }
-  end
+  def attributes_for(row)
+    attributes = ProductPrice::Import::CavegestAttributes.new(row, report, source).to_h
 
-  def volume_ml_of(row, locator)
-    raw = N.text(row["Contenant"])
-
-    if raw.nil?
-      report.count(:product_volumes_missing)
-      report.warn(
-        source: source,
-        locator: locator,
-        message: "contenant absent"
-      )
-
-      return nil
-    end
-
-    centilitres, parsing = N.decimal(raw[CENTILITRES, 1])
-    volume = (centilitres * 10).to_i if parsing == :ok
-    return volume if volume&.positive?
-
-    report.count(:product_volumes_unreadable)
-    report.warn(
-      source: source,
-      locator: locator,
-      message: "contenant illisible, volume non repris : #{raw}"
-    )
-
-    nil
-  end
-
-  def vat_rate_of(row, locator)
-    rate, parsing = N.decimal(row["TVA"])
-    return rate if parsing == :ok
-
-    report.count(:product_vat_rates_missing)
-    report.warn(
-      source: source,
-      locator: locator,
-      message: "taux de TVA illisible, non repris : #{N.text(row["TVA"]).inspect}"
-    )
-
-    nil
-  end
-
-  def stock_of(row, locator)
-    quantity, parsing = N.decimal(row["Stock"])
-    return quantity.to_i if parsing == :ok
-
-    report.count(:product_stocks_missing)
-    report.warn(
-      source: source,
-      locator: locator,
-      message: "stock illisible, non repris : #{N.text(row["Stock"]).inspect}"
-    )
-
-    nil
+    attributes.merge(product_color: color_for(row), product_classification: @classification)
   end
 
   def color_for(row)
-    name = N.capitalized(row["Couleur"])
+    name = N.capitalized(row.value("Couleur"))
     return nil if name.nil?
 
     colors[name] ||= begin
@@ -285,17 +217,18 @@ class ProductPrice::Import::Cavegest < Importer::Base
     @colors ||= {}
   end
 
-  def import_prices(product, row, locator)
+  def import_prices(product, row)
     price_grids.each do |code, grid|
-      amount, parsing = N.decimal(row[code])
+      amount, parsing = N.decimal(row.value(code))
 
       next if parsing == :blank
-      next report_invalid_price(code, row[code], locator) if parsing == :invalid
+      next report_invalid_price(row, code) if parsing == :invalid
 
       if grid.tax_included
-        next report_missing_vat_rate(code, locator) if product.vat_rate.nil?
+        next report_missing_vat_rate(row, code) if product.vat_rate.nil?
 
         amount = tax_excluded(amount, product.vat_rate)
+        report.count(:product_prices_converted)
       end
 
       price = ProductPrice.find_or_initialize_by(product: product, price_grid: grid)
@@ -312,21 +245,19 @@ class ProductPrice::Import::Cavegest < Importer::Base
     amount / (1 + vat_rate / 100)
   end
 
-  def report_invalid_price(grid_code, value, locator)
-    report.count(:product_prices_invalid)
-    report.warn(
-      source: source,
-      locator: locator,
-      message: "tarif #{grid_code} illisible, non repris : #{N.text(value)}"
+  def report_invalid_price(row, grid_code)
+    report_warning(
+      :product_prices_invalid,
+      row.locator,
+      "tarif #{grid_code} illisible, non repris : #{N.text(row.value(grid_code))}"
     )
   end
 
-  def report_missing_vat_rate(grid_code, locator)
-    report.count(:product_prices_without_vat_rate)
-    report.warn(
-      source: source,
-      locator: locator,
-      message: "tarif #{grid_code} saisi en TTC sans taux de TVA, non repris"
+  def report_missing_vat_rate(row, grid_code)
+    report_warning(
+      :product_prices_without_vat_rate,
+      row.locator,
+      "tarif #{grid_code} saisi en TTC sans taux de TVA, non repris"
     )
   end
 
@@ -335,11 +266,10 @@ class ProductPrice::Import::Cavegest < Importer::Base
       kept = retained_counts[section]
       next if kept == declared
 
-      report.count(:product_sections_incomplete)
-      report.warn(
-        source: source,
-        locator: "section #{section}",
-        message: "#{declared} produits annoncés, #{kept} repris"
+      report_warning(
+        :product_sections_incomplete,
+        "section #{section}",
+        "#{declared} produits annoncés, #{kept} repris"
       )
     end
   end

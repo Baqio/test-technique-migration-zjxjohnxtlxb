@@ -2,7 +2,9 @@ require "spec_helper"
 
 RSpec.describe Customer::Import::Cavegest do
   before(:all) do
-    @report = described_class.new(data_path("export_clients_cavegest.xlsx"), report: MigrationReport.new).call
+    @report = described_class.new(
+      data_path("export_clients_cavegest.xlsx"), sheets: ["Feuil1"], report: MigrationReport.new
+    ).call
   end
 
   after(:all) do
@@ -111,11 +113,13 @@ RSpec.describe Customer::Import::Cavegest do
     expect(Customer.where(reference: "T00101").count).to eq(1)
   end
 
-  it "creates nothing on a second run" do
+   it "creates nothing on a second run" do
     second = MigrationReport.new
+    import = described_class.new(
+      data_path("export_clients_cavegest.xlsx"), sheets: ["Feuil1"], report: second
+    )
 
-    expect { described_class.new(data_path("export_clients_cavegest.xlsx"), report: second).call }
-      .not_to change(Customer, :count)
+    expect { import.call }.not_to change(Customer, :count)
 
     expect(second.counters[:customers_created]).to eq(0)
     expect(second.counters[:customers_unchanged]).to eq(4991)
@@ -131,5 +135,28 @@ RSpec.describe Customer::Import::Cavegest do
     expect(report.counters[:excise_numbers_completed]).to eq(570)
     expect(report.counters[:kinds_resellers_as_customers]).to eq(982)
     expect(report.errors.size).to eq(3)
+  end
+
+  it "leaves the backup sheet aside" do
+    expect(Customer.find_by(reference: "T00001").company_name).to eq("LE VERRE GALANT")
+    expect(report.counters[:sheets_left_aside]).to eq(1)
+  end
+
+  it "rejects a sheet the file does not hold" do
+    other = MigrationReport.new
+
+    described_class.new(data_path("export_clients_cavegest.xlsx"), sheets: ["Feuil2"], report: other).call
+
+    expect(other.counters[:sheets_not_found]).to eq(1)
+    expect(other.counters[:customers_created]).to eq(0)
+  end
+
+  it "rejects a sheet whose first row is not a header" do
+    other = MigrationReport.new
+
+    described_class.new(data_path("export_clients_cavegest.xlsx"), sheets: ["clients"], report: other).call
+
+    expect(other.counters[:headers_not_found]).to eq(1)
+    expect(other.counters[:customers_updated]).to eq(0)
   end
 end
